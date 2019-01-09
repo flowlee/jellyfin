@@ -38,14 +38,13 @@
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
- <ItemGroup>
+  <ItemGroup>
     <EmbeddedResource Include="Localization\iso6392.txt" />
     <EmbeddedResource Include="Localization\countries.json" />
     <EmbeddedResource Include="Localization\Core\*.json" />
     <EmbeddedResource Include="TextEncoding\NLangDetect\Profiles\*" />
     <EmbeddedResource Include="TextEncoding\NLangDetect\Utils\messages.properties" />
     <EmbeddedResource Include="Localization\Ratings\*.txt" />
-    <EmbeddedResource Include="values.txt" />
- </ItemGroup>
+  </ItemGroup>
 
 </Project>
