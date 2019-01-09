@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,13 +8,11 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Emby.Drawing;
-using Emby.Drawing.ImageMagick;
 using Emby.Drawing.Skia;
 using Emby.Server.Implementations;
 using Emby.Server.Implementations.EnvironmentInfo;
 using Emby.Server.Implementations.IO;
 using Emby.Server.Implementations.Networking;
-using Jellyfin.Server.Native;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Drawing;
@@ -48,6 +46,8 @@ namespace Jellyfin.Server
             }
 
             ServerApplicationPaths appPaths = createApplicationPaths(options);
+            // $JELLYFIN_LOG_DIR needs to be set for the logger configuration manager
+            Environment.SetEnvironmentVariable("JELLYFIN_LOG_DIR", appPaths.LogDirectoryPath);
             await createLogger(appPaths);
             _loggerFactory = new SerilogLoggerFactory();
             _logger = _loggerFactory.CreateLogger("Main");
@@ -72,7 +72,6 @@ namespace Jellyfin.Server
                 _loggerFactory,
                 options,
                 fileSystem,
-                new PowerManagement(),
                 environmentInfo,
                 new NullImageEncoder(),
                 new SystemEvents(_loggerFactory.CreateLogger("SystemEvents")),
@@ -103,43 +102,66 @@ namespace Jellyfin.Server
 
         private static ServerApplicationPaths createApplicationPaths(StartupOptions options)
         {
-            string programDataPath;
-            if (options.ContainsOption("-programdata"))
+            string programDataPath = Environment.GetEnvironmentVariable("JELLYFIN_DATA_PATH");
+            if (string.IsNullOrEmpty(programDataPath))
             {
-                programDataPath = options.GetOption("-programdata");
-            }
-            else
-            {
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                if (options.ContainsOption("-programdata"))
                 {
-                    programDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                    programDataPath = options.GetOption("-programdata");
                 }
                 else
                 {
-                    // $XDG_DATA_HOME defines the base directory relative to which user specific data files should be stored.
-                    programDataPath = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-                    // If $XDG_DATA_HOME is either not set or empty, $HOME/.local/share should be used.
-                    if (string.IsNullOrEmpty(programDataPath))
+                    if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
                     {
-                        programDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+                        programDataPath = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
                     }
+                    else
+                    {
+                        // $XDG_DATA_HOME defines the base directory relative to which user specific data files should be stored.
+                        programDataPath = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+                        // If $XDG_DATA_HOME is either not set or empty, $HOME/.local/share should be used.
+                        if (string.IsNullOrEmpty(programDataPath))
+                        {
+                            programDataPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share");
+                        }
+                    }
+                    programDataPath = Path.Combine(programDataPath, "jellyfin");
+                    // Ensure the dir exists
+                    Directory.CreateDirectory(programDataPath);
                 }
-                programDataPath = Path.Combine(programDataPath, "jellyfin");
+            }
+
+            string configDir = Environment.GetEnvironmentVariable("JELLYFIN_CONFIG_DIR");
+            if (string.IsNullOrEmpty(configDir))
+            {
+                if (options.ContainsOption("-configdir"))
+                {
+                    configDir = options.GetOption("-configdir");
+                }
+                else
+                {
+                    // Let BaseApplicationPaths set up the default value
+                    configDir = null;
+                }
             }
 
             string logDir = Environment.GetEnvironmentVariable("JELLYFIN_LOG_DIR");
             if (string.IsNullOrEmpty(logDir))
             {
-                logDir = Path.Combine(programDataPath, "logs");
-                // Ensure logDir exists
-                Directory.CreateDirectory(logDir);
-                // $JELLYFIN_LOG_DIR needs to be set for the logger configuration manager
-                Environment.SetEnvironmentVariable("JELLYFIN_LOG_DIR", logDir);
+                if (options.ContainsOption("-logdir"))
+                {
+                    logDir = options.GetOption("-logdir");
+                }
+                else
+                {
+                    // Let BaseApplicationPaths set up the default value
+                    logDir = null;
+                }
             }
 
             string appPath = AppContext.BaseDirectory;
 
-            return new ServerApplicationPaths(programDataPath, appPath, appPath, logDir);
+            return new ServerApplicationPaths(programDataPath, appPath, appPath, logDir, configDir);
         }
 
         private static async Task createLogger(IApplicationPaths appPaths)
@@ -174,10 +196,10 @@ namespace Jellyfin.Server
             {
                 Serilog.Log.Logger = new LoggerConfiguration()
                     .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss}] [{Level:u3}] {Message:lj}{NewLine}{Exception}")
-                    .WriteTo.File(
+                    .WriteTo.Async(x => x.File(
                         Path.Combine(appPaths.LogDirectoryPath, "log_.log"),
                         rollingInterval: RollingInterval.Day,
-                        outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}] [{Level:u3}] {Message}{NewLine}{Exception}")
+                        outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}] [{Level:u3}] {Message}{NewLine}{Exception}"))
                     .Enrich.FromLogContext()
                     .CreateLogger();
 
@@ -194,26 +216,13 @@ namespace Jellyfin.Server
             IEnvironmentInfo environment,
             ILocalizationManager localizationManager)
         {
-            if (!startupOptions.ContainsOption("-enablegdi"))
+            try
             {
-                try
-                {
-                    return new SkiaEncoder(logger, appPaths, httpClient, fileSystem, localizationManager);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogInformation(ex, "Skia not available. Will try next image processor. {0}");
-                }
-
-                try
-                {
-                    return new ImageMagickEncoder(logger, appPaths, httpClient, fileSystem, environment);
-                }
-                catch (Exception ex)
-                {
-                    logger.LogInformation(ex, "ImageMagick not available. Will try next image processor.");
-                }
-                _logger.LogInformation("Falling back on NullImageEncoder");
+                return new SkiaEncoder(logger, appPaths, httpClient, fileSystem, localizationManager);
+            }
+            catch (Exception ex)
+            {
+                logger.LogInformation(ex, "Skia not available. Will fallback to NullIMageEncoder. {0}");
             }
 
             return new NullImageEncoder();
@@ -247,7 +256,7 @@ namespace Jellyfin.Server
             }
         }
 
-        public static  void Shutdown()
+        public static void Shutdown()
         {
             ApplicationTaskCompletionSource.SetResult(true);
         }

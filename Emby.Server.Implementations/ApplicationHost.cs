@@ -80,7 +80,6 @@ using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.IO;
 using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Net;
-using MediaBrowser.Model.News;
 using MediaBrowser.Model.Reflection;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Services;
@@ -369,7 +368,6 @@ namespace Emby.Server.Implementations
 
         public StartupOptions StartupOptions { get; private set; }
 
-        internal IPowerManagement PowerManagement { get; private set; }
         internal IImageEncoder ImageEncoder { get; private set; }
 
         protected IProcessFactory ProcessFactory { get; private set; }
@@ -391,7 +389,6 @@ namespace Emby.Server.Implementations
             ILoggerFactory loggerFactory,
             StartupOptions options,
             IFileSystem fileSystem,
-            IPowerManagement powerManagement,
             IEnvironmentInfo environmentInfo,
             IImageEncoder imageEncoder,
             ISystemEvents systemEvents,
@@ -417,11 +414,8 @@ namespace Emby.Server.Implementations
             Logger = LoggerFactory.CreateLogger("App");
 
             StartupOptions = options;
-            PowerManagement = powerManagement;
 
             ImageEncoder = imageEncoder;
-
-            //SetBaseExceptionMessage();
 
             fileSystem.AddShortcutHandler(new MbLinkShortcutHandler(fileSystem));
 
@@ -504,14 +498,6 @@ namespace Emby.Server.Implementations
         public virtual IStreamHelper CreateStreamHelper()
         {
             return new StreamHelper();
-        }
-
-        public virtual bool SupportsAutoRunAtStartup
-        {
-            get
-            {
-                return EnvironmentInfo.OperatingSystem == MediaBrowser.Model.System.OperatingSystem.Windows;
-            }
         }
 
         /// <summary>
@@ -687,26 +673,12 @@ namespace Emby.Server.Implementations
             return parts;
         }
 
-        // TODO: @bond
-        /*
-        private void SetBaseExceptionMessage()
-        {
-            var builder = GetBaseExceptionMessage(ApplicationPaths);
-
-            builder.Insert(0, string.Format("Version: {0}{1}", ApplicationVersion, Environment.NewLine));
-            builder.Insert(0, "*** Error Report ***" + Environment.NewLine);
-
-            LoggerFactory.ExceptionMessagePrefix = builder.ToString();
-        }*/
-
         /// <summary>
         /// Runs the startup tasks.
         /// </summary>
         public Task RunStartupTasks()
         {
             Resolve<ITaskManager>().AddTasks(GetExports<IScheduledTask>(false));
-
-            ConfigureAutorun();
 
             ConfigurationManager.ConfigurationUpdated += OnConfigurationUpdated;
 
@@ -734,8 +706,6 @@ namespace Emby.Server.Implementations
             RunEntryPoints(entryPoints, false);
             Logger.LogInformation("All entry points have started");
 
-            //LoggerFactory.RemoveConsoleOutput();
-
             return Task.CompletedTask;
         }
 
@@ -749,7 +719,7 @@ namespace Emby.Server.Implementations
                 }
 
                 var name = entryPoint.GetType().FullName;
-                Logger.LogInformation("Starting entry point {0}", name);
+                Logger.LogInformation("Starting entry point {Name}", name);
                 var now = DateTime.UtcNow;
                 try
                 {
@@ -757,24 +727,9 @@ namespace Emby.Server.Implementations
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Error in {name}", name);
+                    Logger.LogError(ex, "Error while running entrypoint {Name}", name);
                 }
-                Logger.LogInformation("Entry point completed: {0}. Duration: {1} seconds", name, (DateTime.UtcNow - now).TotalSeconds.ToString(CultureInfo.InvariantCulture), "ImageInfos");
-            }
-        }
-
-        /// <summary>
-        /// Configures the autorun.
-        /// </summary>
-        private void ConfigureAutorun()
-        {
-            try
-            {
-                ConfigureAutoRunAtStartup(ConfigurationManager.CommonConfiguration.RunAtStartup);
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error configuring autorun");
+                Logger.LogInformation("Entry point completed: {Name}. Duration: {Duration} seconds", name, (DateTime.UtcNow - now).TotalSeconds.ToString(CultureInfo.InvariantCulture), "ImageInfos");
             }
         }
 
@@ -872,8 +827,6 @@ namespace Emby.Server.Implementations
 
             SocketFactory = new SocketFactory(LoggerFactory.CreateLogger("SocketFactory"));
             RegisterSingleInstance(SocketFactory);
-
-            RegisterSingleInstance(PowerManagement);
 
             SecurityManager = new PluginSecurityManager(this, HttpClient, JsonSerializer, ApplicationPaths, LoggerFactory, FileSystemManager, CryptographyProvider);
             RegisterSingleInstance(SecurityManager);
@@ -1310,7 +1263,6 @@ namespace Emby.Server.Implementations
         {
             if (!ServerConfigurationManager.Configuration.IsPortAuthorized)
             {
-                RegisterServerWithAdministratorAccess();
                 ServerConfigurationManager.Configuration.IsPortAuthorized = true;
                 ConfigurationManager.SaveConfiguration();
             }
@@ -1381,12 +1333,11 @@ namespace Emby.Server.Implementations
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error getting plugin Id from {pluginName}.", plugin.GetType().FullName);
+                        Logger.LogError(ex, "Error getting plugin Id from {PluginName}.", plugin.GetType().FullName);
                     }
                 }
 
-                var hasPluginConfiguration = plugin as IHasPluginConfiguration;
-                if (hasPluginConfiguration != null)
+                if (plugin is IHasPluginConfiguration hasPluginConfiguration)
                 {
                     hasPluginConfiguration.SetStartupInfo(s => Directory.CreateDirectory(s));
                 }
@@ -1591,8 +1542,6 @@ namespace Emby.Server.Implementations
         /// <param name="e">The <see cref="EventArgs"/> instance containing the event data.</param>
         protected void OnConfigurationUpdated(object sender, EventArgs e)
         {
-            ConfigureAutorun();
-
             var requiresRestart = false;
 
             // Don't do anything if these haven't been set yet
@@ -1805,13 +1754,13 @@ namespace Emby.Server.Implementations
             {
                 var result = Version.Parse(FileVersionInfo.GetVersionInfo(path).FileVersion);
 
-                Logger.LogInformation("File {0} has version {1}", path, result);
+                Logger.LogInformation("File {Path} has version {Version}", path, result);
 
                 return result;
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error getting version number from {path}", path);
+                Logger.LogError(ex, "Error getting version number from {Path}", path);
 
                 return new Version(1, 0);
             }
@@ -1943,7 +1892,6 @@ namespace Emby.Server.Implementations
                 CanLaunchWebBrowser = CanLaunchWebBrowser,
                 WanAddress = wanAddress,
                 HasUpdateAvailable = HasUpdateAvailable,
-                SupportsAutoRunAtStartup = SupportsAutoRunAtStartup,
                 TranscodingTempPath = ApplicationPaths.TranscodingTempPath,
                 ServerName = FriendlyName,
                 LocalAddress = localAddress,
@@ -2225,32 +2173,6 @@ namespace Emby.Server.Implementations
 
         protected abstract void ShutdownInternal();
 
-        /// <summary>
-        /// Registers the server with administrator access.
-        /// </summary>
-        private void RegisterServerWithAdministratorAccess()
-        {
-            Logger.LogInformation("Requesting administrative access to authorize http server");
-
-            try
-            {
-                AuthorizeServer();
-            }
-            catch (NotImplementedException)
-            {
-
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error authorizing server");
-            }
-        }
-
-        protected virtual void AuthorizeServer()
-        {
-            throw new NotImplementedException();
-        }
-
         public event EventHandler HasUpdateAvailableChanged;
 
         private bool _hasUpdateAvailable;
@@ -2265,7 +2187,7 @@ namespace Emby.Server.Implementations
 
                 if (fireEvent)
                 {
-                    EventHelper.FireEventIfNotNull(HasUpdateAvailableChanged, this, EventArgs.Empty, Logger);
+                    HasUpdateAvailableChanged?.Invoke(this, EventArgs.Empty);
                 }
             }
         }
@@ -2294,23 +2216,6 @@ namespace Emby.Server.Implementations
             HasUpdateAvailable = false;
 
             OnApplicationUpdated(package);
-        }
-
-        /// <summary>
-        /// Configures the automatic run at startup.
-        /// </summary>
-        /// <param name="autorun">if set to <c>true</c> [autorun].</param>
-        protected void ConfigureAutoRunAtStartup(bool autorun)
-        {
-            if (SupportsAutoRunAtStartup)
-            {
-                ConfigureAutoRunInternal(autorun);
-            }
-        }
-
-        protected virtual void ConfigureAutoRunInternal(bool autorun)
-        {
-            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -2381,11 +2286,10 @@ namespace Emby.Server.Implementations
         {
             Logger.LogInformation("Application has been updated to version {0}", package.versionStr);
 
-            EventHelper.FireEventIfNotNull(ApplicationUpdated, this, new GenericEventArgs<PackageVersionInfo>
+            ApplicationUpdated?.Invoke(this, new GenericEventArgs<PackageVersionInfo>
             {
                 Argument = package
-
-            }, Logger);
+            });
 
             NotifyPendingRestart();
         }
@@ -2414,15 +2318,14 @@ namespace Emby.Server.Implementations
             {
                 var type = GetType();
 
-                //LoggerFactory.AddConsoleOutput();
-                Logger.LogInformation("Disposing " + type.Name);
+                Logger.LogInformation("Disposing {Type}", type.Name);
 
                 var parts = DisposableParts.Distinct().Where(i => i.GetType() != type).ToList();
                 DisposableParts.Clear();
 
                 foreach (var part in parts)
                 {
-                    Logger.LogInformation("Disposing " + part.GetType().Name);
+                    Logger.LogInformation("Disposing {Type}", part.GetType().Name);
 
                     try
                     {
@@ -2430,57 +2333,10 @@ namespace Emby.Server.Implementations
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogError(ex, "Error disposing {0}", part.GetType().Name);
+                        Logger.LogError(ex, "Error disposing {Type}", part.GetType().Name);
                     }
                 }
             }
-        }
-
-        private Dictionary<string, string> _values;
-        public string GetValue(string name)
-        {
-            if (_values == null)
-            {
-                _values = LoadValues();
-            }
-
-            string value;
-
-            if (_values.TryGetValue(name, out value))
-            {
-                return value;
-            }
-
-            return null;
-        }
-
-        // TODO: @bond Remove?
-        private Dictionary<string, string> LoadValues()
-        {
-            Dictionary<string, string> values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            using (var stream = typeof(ApplicationHost).Assembly.GetManifestResourceStream(typeof(ApplicationHost).Namespace + ".values.txt"))
-            {
-                using (var reader = new StreamReader(stream))
-                {
-                    while (!reader.EndOfStream)
-                    {
-                        var line = reader.ReadLine();
-                        if (string.IsNullOrEmpty(line))
-                        {
-                            continue;
-                        }
-
-                        var index = line.IndexOf('=');
-                        if (index != -1)
-                        {
-                            values[line.Substring(0, index)] = line.Substring(index + 1);
-                        }
-                    }
-                }
-            }
-
-            return values;
         }
     }
 

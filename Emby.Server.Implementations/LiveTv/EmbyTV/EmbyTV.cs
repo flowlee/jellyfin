@@ -1,9 +1,16 @@
-﻿using MediaBrowser.Common;
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Xml;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
-using MediaBrowser.Common.Security;
 using MediaBrowser.Controller.Configuration;
-using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LiveTv;
 using MediaBrowser.Controller.MediaEncoding;
@@ -14,25 +21,13 @@ using MediaBrowser.Model.Events;
 using MediaBrowser.Model.LiveTv;
 using Microsoft.Extensions.Logging;
 using MediaBrowser.Model.Serialization;
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Globalization;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Xml;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Common.Events;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Progress;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
-using MediaBrowser.Controller.IO;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Diagnostics;
 using MediaBrowser.Model.System;
@@ -80,7 +75,23 @@ namespace Emby.Server.Implementations.LiveTv.EmbyTV
 
         private readonly IStreamHelper _streamHelper;
 
-        public EmbyTV(IServerApplicationHost appHost, IStreamHelper streamHelper, IMediaSourceManager mediaSourceManager, IAssemblyInfo assemblyInfo, ILogger logger, IJsonSerializer jsonSerializer, IPowerManagement powerManagement, IHttpClient httpClient, IServerConfigurationManager config, ILiveTvManager liveTvManager, IFileSystem fileSystem, ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, IProviderManager providerManager, IMediaEncoder mediaEncoder, ITimerFactory timerFactory, IProcessFactory processFactory, ISystemEvents systemEvents)
+        public EmbyTV(IServerApplicationHost appHost,
+            IStreamHelper streamHelper,
+            IMediaSourceManager mediaSourceManager,
+            IAssemblyInfo assemblyInfo,
+            ILogger logger,
+            IJsonSerializer jsonSerializer,
+            IHttpClient httpClient,
+            IServerConfigurationManager config,
+            ILiveTvManager liveTvManager,
+            IFileSystem fileSystem,
+            ILibraryManager libraryManager,
+            ILibraryMonitor libraryMonitor,
+            IProviderManager providerManager,
+            IMediaEncoder mediaEncoder,
+            ITimerFactory timerFactory,
+            IProcessFactory processFactory,
+            ISystemEvents systemEvents)
         {
             Current = this;
 
@@ -102,7 +113,7 @@ namespace Emby.Server.Implementations.LiveTv.EmbyTV
             _streamHelper = streamHelper;
 
             _seriesTimerProvider = new SeriesTimerManager(fileSystem, jsonSerializer, _logger, Path.Combine(DataPath, "seriestimers"));
-            _timerProvider = new TimerManager(fileSystem, jsonSerializer, _logger, Path.Combine(DataPath, "timers"), _logger, timerFactory, powerManagement);
+            _timerProvider = new TimerManager(fileSystem, jsonSerializer, _logger, Path.Combine(DataPath, "timers"), _logger, timerFactory);
             _timerProvider.TimerFired += _timerProvider_TimerFired;
 
             _config.NamedConfigurationUpdated += _config_NamedConfigurationUpdated;

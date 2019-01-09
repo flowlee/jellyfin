@@ -22,7 +22,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.IO;
-using MediaBrowser.Common.Events;
 using MediaBrowser.Common.Security;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
@@ -144,13 +143,13 @@ namespace Emby.Server.Implementations.LiveTv
         {
             var timerId = e.Argument;
 
-            EventHelper.FireEventIfNotNull(TimerCancelled, this, new GenericEventArgs<TimerEventInfo>
+            TimerCancelled?.Invoke(this, new GenericEventArgs<TimerEventInfo>
             {
                 Argument = new TimerEventInfo
                 {
                     Id = timerId
                 }
-            }, _logger);
+            });
         }
 
         private void EmbyTv_TimerCreated(object sender, GenericEventArgs<TimerInfo> e)
@@ -158,14 +157,14 @@ namespace Emby.Server.Implementations.LiveTv
             var timer = e.Argument;
             var service = sender as ILiveTvService;
 
-            EventHelper.FireEventIfNotNull(TimerCreated, this, new GenericEventArgs<TimerEventInfo>
+            TimerCreated?.Invoke(this, new GenericEventArgs<TimerEventInfo>
             {
                 Argument = new TimerEventInfo
                 {
                     ProgramId = _tvDtoService.GetInternalProgramId(timer.ProgramId),
                     Id = timer.Id
                 }
-            }, _logger);
+            });
         }
 
         public ITunerHost[] TunerHosts
@@ -1057,7 +1056,7 @@ namespace Emby.Server.Implementations.LiveTv
             var numComplete = 0;
             double progressPerService = _services.Length == 0
                 ? 0
-                : 1 / _services.Length;
+                : 1.0 / _services.Length;
 
             var newChannelIdList = new List<Guid>();
             var newProgramIdList = new List<Guid>();
@@ -1263,7 +1262,7 @@ namespace Emby.Server.Implementations.LiveTv
                 }
 
                 numComplete++;
-                double percent = numComplete / allChannelsList.Count;
+                double percent = numComplete / (double) allChannelsList.Count;
 
                 progress.Report(85 * percent + 15);
             }
@@ -1308,7 +1307,7 @@ namespace Emby.Server.Implementations.LiveTv
                 }
 
                 numComplete++;
-                double percent = numComplete / list.Count;
+                double percent = numComplete / (double) list.Count;
 
                 progress.Report(100 * percent);
             }
@@ -1734,13 +1733,13 @@ namespace Emby.Server.Implementations.LiveTv
 
             if (!(service is EmbyTV.EmbyTV))
             {
-                EventHelper.FireEventIfNotNull(TimerCancelled, this, new GenericEventArgs<TimerEventInfo>
+                TimerCancelled?.Invoke(this, new GenericEventArgs<TimerEventInfo>
                 {
                     Argument = new TimerEventInfo
                     {
                         Id = id
                     }
-                }, _logger);
+                });
             }
         }
 
@@ -1757,13 +1756,13 @@ namespace Emby.Server.Implementations.LiveTv
 
             await service.CancelSeriesTimerAsync(timer.ExternalId, CancellationToken.None).ConfigureAwait(false);
 
-            EventHelper.FireEventIfNotNull(SeriesTimerCancelled, this, new GenericEventArgs<TimerEventInfo>
+            SeriesTimerCancelled?.Invoke(this, new GenericEventArgs<TimerEventInfo>
             {
                 Argument = new TimerEventInfo
                 {
                     Id = id
                 }
-            }, _logger);
+            });
         }
 
         public async Task<TimerInfoDto> GetTimer(string id, CancellationToken cancellationToken)
@@ -2083,14 +2082,14 @@ namespace Emby.Server.Implementations.LiveTv
 
             if (!(service is EmbyTV.EmbyTV))
             {
-                EventHelper.FireEventIfNotNull(TimerCreated, this, new GenericEventArgs<TimerEventInfo>
+                TimerCreated?.Invoke(this, new GenericEventArgs<TimerEventInfo>
                 {
                     Argument = new TimerEventInfo
                     {
                         ProgramId = _tvDtoService.GetInternalProgramId(info.ProgramId),
                         Id = newTimerId
                     }
-                }, _logger);
+                });
             }
         }
 
@@ -2123,14 +2122,14 @@ namespace Emby.Server.Implementations.LiveTv
                 await service.CreateSeriesTimerAsync(info, cancellationToken).ConfigureAwait(false);
             }
 
-            EventHelper.FireEventIfNotNull(SeriesTimerCreated, this, new GenericEventArgs<TimerEventInfo>
+            SeriesTimerCreated?.Invoke(this, new GenericEventArgs<TimerEventInfo>
             {
                 Argument = new TimerEventInfo
                 {
                     ProgramId = _tvDtoService.GetInternalProgramId(info.ProgramId),
                     Id = newTimerId
                 }
-            }, _logger);
+            });
         }
 
         public async Task UpdateTimer(TimerInfoDto timer, CancellationToken cancellationToken)

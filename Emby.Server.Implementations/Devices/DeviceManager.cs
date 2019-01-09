@@ -1,5 +1,4 @@
 ﻿using MediaBrowser.Common.Configuration;
-using MediaBrowser.Common.Events;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
@@ -254,14 +253,14 @@ namespace Emby.Server.Implementations.Devices
 
             if (CameraImageUploaded != null)
             {
-                EventHelper.FireEventIfNotNull(CameraImageUploaded, this, new GenericEventArgs<CameraImageUploadInfo>
+                CameraImageUploaded?.Invoke(this, new GenericEventArgs<CameraImageUploadInfo>
                 {
                     Argument = new CameraImageUploadInfo
                     {
                         Device = device,
                         FileInfo = file
                     }
-                }, _logger);
+                });
             }
         }
 
